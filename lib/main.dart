@@ -3,6 +3,10 @@ import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:overlay_support/overlay_support.dart';
 
+import 'model/PushNotification.dart';
+import 'notification_badge.dart';
+import 'notification_card.dart';
+
 void main() {
   runApp(const MyApp());
 }
@@ -20,8 +24,8 @@ class MyApp extends StatelessWidget {
           primarySwatch: Colors.deepPurple,
         ),
         debugShowCheckedModeBanner: false,
-        home: MyHomePage(
-          title: '',
+        home: const MyHomePage(
+          title: 'Notification',
         ),
       ),
     );
@@ -37,57 +41,19 @@ class MyHomePage extends StatefulWidget {
   State<MyHomePage> createState() => _MyHomePageState();
 }
 
+Future _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
+  print("Handling a background message: ${message.messageId}");
+}
+
 class _MyHomePageState extends State<MyHomePage> {
-  late int _totalNotifications;
-  late final FirebaseMessaging _messaging;
-  PushNotification? _notificationInfo;
+  List<PushNotification> _listNotification  = [];
 
   @override
   void initState() {
-    _totalNotifications = 0;
     registerNotification();
-
-    FirebaseMessaging.onMessageOpenedApp.listen((RemoteMessage message) {
-      PushNotification notification = PushNotification(
-        title: message.notification?.title,
-        body: message.notification?.body,
-        dataTitle: message.data['title'],
-        dataBody: message.data['body'],
-      );
-      setState(() {
-        _notificationInfo = notification;
-        _totalNotifications++;
-      });
-    });
-
-    // Call here
-    checkForInitialMessage();
 
     super.initState();
   }
-
-  Future _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
-    print("Handling a background message: ${message.messageId}");
-  }
-
-  checkForInitialMessage() async {
-    await Firebase.initializeApp();
-    RemoteMessage? initialMessage =
-    await FirebaseMessaging.instance.getInitialMessage();
-
-    if (initialMessage != null) {
-      PushNotification notification = PushNotification(
-        title: initialMessage.notification?.title,
-        body: initialMessage.notification?.body,
-      );
-      setState(() {
-        _notificationInfo = notification;
-        _totalNotifications++;
-      });
-    }
-  }
-
-
 
   void registerNotification() async {
     // 1. Initialize the Firebase app
@@ -99,141 +65,89 @@ class _MyHomePageState extends State<MyHomePage> {
       print('END');
     });
 
-    // 2. Instantiate Firebase Messaging
-    _messaging = FirebaseMessaging.instance;
-
     FirebaseMessaging.onBackgroundMessage(_firebaseMessagingBackgroundHandler);
 
-    // 3. On iOS, this helps to take the user permissions
-    NotificationSettings settings = await _messaging.requestPermission(
-      alert: true,
-      badge: true,
-      provisional: false,
-      sound: true,
-    );
-
-    if (settings.authorizationStatus == AuthorizationStatus.authorized) {
-      print('User granted permission');
-      // TODO: handle the received notifications
-      // For handling the received notifications
-      FirebaseMessaging.onMessage.listen((RemoteMessage message) {
-        // Parse the message received
-        PushNotification notification = PushNotification(
-          title: message.notification?.title,
-          body: message.notification?.body,
-        );
-
-        setState(() {
-          _notificationInfo = notification;
-          _totalNotifications++;
-        });
-
-        if (_notificationInfo != null) {
-          // For displaying the notification as an overlay
-          showSimpleNotification(
-            Text(_notificationInfo!.title!),
-            leading: NotificationBadge(totalNotifications: _totalNotifications),
-            subtitle: Text(_notificationInfo!.body!),
-            background: Colors.cyan.shade700,
-            duration: Duration(seconds: 2),
-          );
-        }
+    FirebaseMessaging.onMessage.listen((RemoteMessage event) {
+      print("Receive Notification");
+      print(event.notification!.title);
+      print(event.notification!.body);
+      PushNotification newNotification = PushNotification(
+        title: event.notification?.title,
+        body: event.notification?.body,
+      );
+      setState(() {
+        _listNotification = List.from(_listNotification)
+          ..add(newNotification);
       });
-    } else {
-      print('User declined or has not accepted permission');
-    }
+
+
+      showDialog(
+          context: context,
+          builder: (BuildContext context) {
+            return AlertDialog(
+              title: Text(event.notification!.title.toString()),
+              content: Text(event.notification!.body!),
+              actions: [
+                TextButton(
+                  child: Text("Done"),
+                  onPressed: () {
+                    Navigator.of(context).pop();
+                  },
+                )
+              ],
+            );
+          });
+    });
+
+
+  }
+
+  void removeItem(var index){
+    List<PushNotification> _newList = _listNotification;
+    var n = _newList.removeAt(index);
+    // print(n.title);
+    setState(() {
+      _listNotification = _newList;
+    });
+  }
+
+  void removeItemAll(){
+    print("Clear Notification");
+    setState(() {
+      _listNotification = [];
+    });
   }
 
   @override
   Widget build(BuildContext context) {
+
     return Scaffold(
       appBar: AppBar(
-        title: Text('Notify'),
-        brightness: Brightness.dark,
+
+        title: Text(widget.title),
       ),
-      body: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          const Text(
-            'App for capturing Firebase Push Notifications',
-            textAlign: TextAlign.center,
-            style: TextStyle(
-              color: Colors.black,
-              fontSize: 20,
-            ),
-          ),
-          SizedBox(height: 16.0),
-          NotificationBadge(totalNotifications: _totalNotifications),
-          SizedBox(height: 16.0),
-          // TODO: add the notification text here
-          _notificationInfo != null
-              ? Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                'TITLE: ${_notificationInfo!.dataTitle ?? _notificationInfo!.title}',
-                style: TextStyle(
-                  fontWeight: FontWeight.bold,
-                  fontSize: 16.0,
-                ),
-              ),
-              SizedBox(height: 8.0),
-              Text(
-                'BODY: ${_notificationInfo!.dataBody ?? _notificationInfo!.body}',
-                style: TextStyle(
-                  fontWeight: FontWeight.bold,
-                  fontSize: 16.0,
-                ),
-              ),
-            ],
-          )
-              : Container(),
-        ],
+      body: ListView.separated(
+        physics: const BouncingScrollPhysics(),
+        padding: const EdgeInsets.all(8),
+        itemCount: _listNotification.length,
+        itemBuilder: (BuildContext context, int index) {
+          return CardNotification(_listNotification[index].title, _listNotification[index].body, index, removeItem);
+        },
+        separatorBuilder: (BuildContext context, int index) => const Divider(),
+      ),
+      floatingActionButton: FloatingActionButton(
+        onPressed: () => removeItemAll(),
+        backgroundColor: Colors.red,
+        child: const Icon(Icons.remove_circle_outline),
       ),
     );
   }
 }
 
-class NotificationBadge extends StatelessWidget {
-  final int totalNotifications;
 
-  const NotificationBadge({required this.totalNotifications});
 
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      width: 40.0,
-      height: 40.0,
-      decoration: new BoxDecoration(
-        color: Colors.red,
-        shape: BoxShape.circle,
-      ),
-      child: Center(
-        child: Padding(
-          padding: const EdgeInsets.all(8.0),
-          child: Text(
-            '$totalNotifications',
-            style: TextStyle(color: Colors.white, fontSize: 20),
-          ),
-        ),
-      ),
-    );
-  }
-}
 
-class PushNotification {
-  PushNotification({
-    this.title,
-    this.body,
-    this.dataTitle,
-    this.dataBody,
 
-  });
-  String? title;
-  String? body;
-  String? dataTitle;
-  String? dataBody;
 
-}
 
 
